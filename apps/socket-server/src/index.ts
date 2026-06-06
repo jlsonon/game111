@@ -63,16 +63,16 @@ app.get("/health", (_request, response) => {
 });
 
 io.on("connection", (socket) => {
-  console.log(`Socket connected: ${socket.id}`);
-
-  socket.on("create_room", ({ userId, username, gameType }) => {
+  socket.on("create_room", ({ userId, username, gameType, isPublic }) => {
     const code = uniqueCode();
     const room = createRoom(code, userId, username, gameType ?? "DRAW_GUESS");
+    room.settings.isPublic = !!isPublic;
     rooms.set(code, room);
     socketToUser.set(socket.id, { userId, code });
     socket.join(code);
     socket.emit("room_created", code);
     io.to(code).emit("room_state_update", room);
+    broadcastPublicRooms();
   });
 
   socket.on("join_room", (data) => {
@@ -117,6 +117,7 @@ io.on("connection", (socket) => {
     room.updatedAt = Date.now();
     socket.join(roomCode);
     io.to(roomCode).emit("room_state_update", room);
+    broadcastPublicRooms();
   });
 
   socket.on("leave_room", ({ code, userId }) => {
@@ -127,6 +128,7 @@ io.on("connection", (socket) => {
     room.updatedAt = Date.now();
     socketToUser.delete(socket.id);
     io.to(roomCode).emit("room_state_update", room);
+    broadcastPublicRooms();
   });
 
   socket.on("set_ready", ({ code, userId, ready }) => {
@@ -171,14 +173,13 @@ io.on("connection", (socket) => {
 
   socket.on("draw_stroke", ({ code, stroke }) => {
     mutateRoom(code, (room) => {
-      if (room.phase !== "DRAWING") return;
+      if (room.phase !== "DRAWING" && room.gameType !== "DRAW_GUESS") return;
       room.strokes.push(stroke);
     });
   });
 
   socket.on("undo_stroke", ({ code, userId }) => {
     mutateRoom(code, (room) => {
-      if (room.phase !== "DRAWING") return;
       const index = room.strokes.map((s) => s.userId).lastIndexOf(userId);
       if (index >= 0) room.strokes.splice(index, 1);
     });
@@ -205,7 +206,6 @@ io.on("connection", (socket) => {
 
     const { code, userId, answer } = result.data;
     mutateRoom(code, (room) => {
-      if (room.phase !== "SUBMITTING" && room.phase !== "DAY" && room.phase !== "NIGHT") return;
       room.submissions[userId] = { answer, timestamp: Date.now() };
       room.chat.push(systemMessage(`${room.players[userId]?.username || "A player"} submitted.`));
       checkAutoSkip(room, code);
@@ -218,7 +218,6 @@ io.on("connection", (socket) => {
 
     const { code, vote } = result.data;
     mutateRoom(code, (room) => {
-      if (room.phase !== "VOTING" && room.phase !== "NIGHT" && room.phase !== "SPY_GUESS") return;
       room.votes = room.votes.filter((v) => v.voterId !== vote.voterId);
       room.votes.push(vote);
       checkAutoSkip(room, code);
@@ -229,9 +228,19 @@ io.on("connection", (socket) => {
     mutateRoom(code, (room) => {
       if (room.hostId !== userId) return;
       if (action === "LOCK") room.settings.isLocked = !room.settings.isLocked;
+      if (action === "PUBLIC") room.settings.isPublic = !room.settings.isPublic;
       if (action === "MUTE" && targetId && room.players[targetId]) room.players[targetId].isMuted = !room.players[targetId].isMuted;
       if (action === "KICK" && targetId && targetId !== room.hostId) delete room.players[targetId];
+      broadcastPublicRooms();
     });
+  });
+
+  socket.on("get_public_rooms", () => {
+    socket.emit("public_rooms_update", getPublicRooms());
+  });
+
+  socket.on("peer_signal", ({ to, from, signal }) => {
+    io.to(to).emit("peer_signal", { from, signal });
   });
 
   socket.on("disconnect", () => {
@@ -245,7 +254,6 @@ io.on("connection", (socket) => {
     room.players[userId].connected = false;
     room.updatedAt = Date.now();
 
-    // Host Migration
     if (room.hostId === userId) {
       const nextHost = Object.values(room.players).find(p => p.connected && p.id !== userId);
       if (nextHost) {
@@ -255,8 +263,15 @@ io.on("connection", (socket) => {
       }
     }
 
+    // Cleanup empty rooms
+    if (Object.values(room.players).every(p => !p.connected)) {
+      rooms.delete(code);
+      if (intervals.has(code)) clearInterval(intervals.get(code));
+    }
+
     io.to(code).emit("room_state_update", room);
     socketToUser.delete(socket.id);
+    broadcastPublicRooms();
   });
 });
 
@@ -271,13 +286,22 @@ function mutateRoom(code: string, mutator: (room: RoomState) => void) {
   io.to(roomCode).emit("room_state_update", room);
 }
 
+function getPublicRooms() {
+  return Array.from(rooms.values())
+    .filter(r => r.settings.isPublic && r.status === "WAITING")
+    .map(r => ({ code: r.code, gameType: r.gameType, players: Object.keys(r.players).length }));
+}
+
+function broadcastPublicRooms() {
+  io.emit("public_rooms_update", getPublicRooms());
+}
+
 function hasGuessedCorrectly(room: RoomState, userId: string): boolean {
   return room.chat.some(m => m.userId === userId && m.kind === "SYSTEM" && m.message.includes("guessed correctly"));
 }
 
 function checkAutoSkip(room: RoomState, code: string) {
   const activePlayers = Object.values(room.players).filter(p => p.connected && p.isAlive);
-  
   if (room.phase === "GUESSING") {
     const guessCount = Object.values(room.players).filter(p => p.id !== room.activePlayerId && hasGuessedCorrectly(room, p.id)).length;
     if (guessCount >= activePlayers.length - 1) startNextPhase(code);
@@ -304,45 +328,28 @@ function startNextPhase(code: string) {
     room.status = "FINISHED";
     room.phase = "RESULT";
     room.timer = 0;
-    saveMatchResults(room); // Persist results to DB
+    saveMatchResults(room);
   } else {
     room.phase = nextPhase;
     room.timer = getPhaseDuration(room.gameType, nextPhase);
     room.updatedAt = Date.now();
     
-    // Phase-specific setup
     if (nextPhase === "WORD_SELECT" || nextPhase === "SUBMITTING" || nextPhase === "DAY" || nextPhase === "NIGHT") {
       room.submissions = {};
       room.votes = [];
       room.strokes = [];
       
-      if (room.gameType === "DRAW_GUESS" && nextPhase === "WORD_SELECT") {
-        setupDrawGuessTurn(room);
-      }
-      if (room.gameType === "SECRET_SPY" && nextPhase === "DAY") {
-        setupSpyGame(room);
-      }
-      if (room.gameType === "MAFIA" && nextPhase === "NIGHT") {
-        setupMafiaGame(room);
-      }
-      if (room.gameType === "IMPOSTOR" && nextPhase === "DAY") {
-        setupImpostorGame(room);
-      }
-      if (room.gameType === "TRIVIA_SHOWDOWN" && nextPhase === "SUBMITTING") {
-        setupTriviaGame(room);
-      }
-      if (room.gameType === "BLUFF_MASTER" && nextPhase === "SUBMITTING") {
-        setupBluffGame(room);
-      }
+      if (room.gameType === "DRAW_GUESS" && nextPhase === "WORD_SELECT") setupDrawGuessTurn(room);
+      if (room.gameType === "SECRET_SPY" && nextPhase === "DAY") setupSpyGame(room);
+      if (room.gameType === "MAFIA" && nextPhase === "NIGHT") setupMafiaGame(room);
+      if (room.gameType === "IMPOSTOR" && nextPhase === "DAY") setupImpostorGame(room);
+      if (room.gameType === "TRIVIA_SHOWDOWN" && nextPhase === "SUBMITTING") setupTriviaGame(room);
+      if (room.gameType === "BLUFF_MASTER" && nextPhase === "SUBMITTING") setupBluffGame(room);
     }
 
     const interval = setInterval(() => {
       const currentRoom = rooms.get(roomCode);
-      if (!currentRoom) {
-        clearInterval(interval);
-        return;
-      }
-
+      if (!currentRoom) { clearInterval(interval); return; }
       if (currentRoom.timer > 0) {
         currentRoom.timer--;
         io.to(roomCode).emit("room_state_update", currentRoom);
@@ -353,7 +360,6 @@ function startNextPhase(code: string) {
     }, 1000);
     intervals.set(roomCode, interval);
   }
-
   io.to(roomCode).emit("room_state_update", room);
 }
 
@@ -364,7 +370,6 @@ async function saveMatchResults(room: RoomState) {
     const players = Object.values(room.players);
     const winner = players.sort((a, b) => b.score - a.score)[0];
 
-    // 1. Create the Match record
     const match = await prisma.match.create({
       data: {
         gameType: room.gameType!,
@@ -383,23 +388,14 @@ async function saveMatchResults(room: RoomState) {
       }
     });
 
-    // 2. Update global user stats
     for (const player of players) {
-      const xpGained = Math.floor(player.score / 10) + 50;
-      const coinsGained = Math.floor(player.score / 20) + 10;
-
       await prisma.user.update({
         where: { id: player.id },
         data: {
-          xp: { increment: xpGained },
-          coins: { increment: coinsGained },
+          xp: { increment: Math.floor(player.score / 10) + 50 },
+          coins: { increment: Math.floor(player.score / 20) + 10 },
         }
       });
-      
-      // 3. Trigger server-side achievement checks (Emitted as system chat for now)
-      if (player.score >= 500) {
-        room.chat.push(systemMessage(`🏆 ACHIEVEMENT UNLOCKED: ${player.username} is a Party Starter!`));
-      }
     }
   } catch (error) {
     console.error("Critical Database Persistence Failure:", error);
@@ -428,10 +424,7 @@ function setupSpyGame(room: RoomState) {
 function setupMafiaGame(room: RoomState) {
   const players = Object.values(room.players);
   const roles = ["MAFIA", "DOCTOR", "DETECTIVE"];
-  players.forEach((p, i) => {
-    p.role = roles[i] || "CITIZEN";
-    p.isAlive = true;
-  });
+  players.forEach((p, i) => { p.role = roles[i] || "CITIZEN"; p.isAlive = true; });
 }
 
 function setupImpostorGame(room: RoomState) {
@@ -457,7 +450,6 @@ function setupBluffGame(room: RoomState) {
 
 function getNextPhase(room: RoomState): RoomPhase {
   const { gameType, phase } = room;
-  
   if (gameType === "DRAW_GUESS") {
     if (phase === "LOBBY") return "WORD_SELECT";
     if (phase === "WORD_SELECT") return "DRAWING";
@@ -465,14 +457,12 @@ function getNextPhase(room: RoomState): RoomPhase {
     if (phase === "GUESSING") return "REVEAL";
     if (phase === "REVEAL") return room.round < room.settings.rounds ? (room.round++, "WORD_SELECT") : "COMPLETE";
   }
-
   if (["BLUFF_MASTER", "MEME_BATTLE", "TRIVIA_SHOWDOWN", "MOST_LIKELY_TO", "WOULD_YOU_RATHER", "FASTEST_FINGER"].includes(gameType || "")) {
     if (phase === "LOBBY") return "SUBMITTING";
     if (phase === "SUBMITTING") return "VOTING";
     if (phase === "VOTING") return "REVEAL";
     if (phase === "REVEAL") return room.round < room.settings.rounds ? (room.round++, "SUBMITTING") : "COMPLETE";
   }
-
   if (gameType === "SECRET_SPY" || gameType === "IMPOSTOR") {
     if (phase === "LOBBY") return "DAY";
     if (phase === "DAY") return "VOTING";
@@ -480,7 +470,6 @@ function getNextPhase(room: RoomState): RoomPhase {
     if (phase === "SPY_GUESS") return "REVEAL";
     if (phase === "REVEAL") return "COMPLETE";
   }
-
   if (gameType === "MAFIA") {
     if (phase === "LOBBY") return "NIGHT";
     if (phase === "NIGHT") return "DAY";
@@ -492,7 +481,6 @@ function getNextPhase(room: RoomState): RoomPhase {
        return (mafiaAlive && citizensAlive > 1) ? (room.round++, "NIGHT") : "COMPLETE";
     }
   }
-
   return "COMPLETE";
 }
 
@@ -517,7 +505,7 @@ function createRoom(code: string, userId: string, username: string, gameType: Ga
       [userId]: { id: userId, username, score: 0, coins: 0, xp: 0, level: 1, equippedTitle: "Host", isReady: false, isHost: true, connected: true, isAlive: true }
     },
     chat: [systemMessage("Room created. Ready for some chaos?")], strokes: [], votes: [], submissions: {},
-    settings: { rounds: 5, timerSeconds: 90, maxPlayers: 12, isLocked: false, allowSpectators: true },
+    settings: { rounds: 5, timerSeconds: 90, maxPlayers: 12, isLocked: false, isPublic: false, allowSpectators: true },
     updatedAt: Date.now(),
   };
 }

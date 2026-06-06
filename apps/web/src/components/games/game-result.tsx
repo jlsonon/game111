@@ -3,15 +3,36 @@
 import { Button, Panel } from "@/components/ui";
 import { getSocket } from "@/lib/socket";
 import type { RoomState } from "@partyverse/shared";
-import { Award, ChevronRight, Home, Share2, Trophy } from "lucide-react";
+import { Award, ChevronRight, Home, Share2, Trophy, Plus, UserPlus, Check } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { sensory } from "@/lib/sensory";
+import { usePartyverseStore } from "@/store/partyverse-store";
+import { useState } from "react";
 
 export function GameResult({ room, userId }: { room: RoomState; userId: string }) {
+  const { profile } = usePartyverseStore();
+  const [addedFriends, setAddedFriends] = useState<string[]>([]);
   const players = Object.values(room.players).sort((a, b) => b.score - a.score);
   const winners = players.slice(0, 3);
   const isHost = room.hostId === userId;
+
+  async function addFriend(targetUsername: string) {
+    if (addedFriends.includes(targetUsername)) return;
+    try {
+      const res = await fetch("/api/social/friends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: profile.id, targetUsername }),
+      });
+      if (res.ok) {
+        sensory.playSfx("SUCCESS");
+        setAddedFriends([...addedFriends, targetUsername]);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
 
   function shareVictory() {
     sensory.playSfx("NOTIFICATION");
@@ -53,7 +74,15 @@ export function GameResult({ room, userId }: { room: RoomState; userId: string }
                 <span className="text-4xl font-black text-white">{winners[1].username[0].toUpperCase()}</span>
              </div>
              <div className="text-xl font-black text-white uppercase italic">{winners[1].username}</div>
-             <div className="text-sm font-bold text-zinc-500 tracking-tighter">{winners[1].score.toLocaleString()} PTS</div>
+             <div className="flex items-center gap-2 mt-1 mb-2">
+                <div className="text-sm font-bold text-zinc-500 tracking-tighter">{winners[1].score.toLocaleString()} PTS</div>
+                <button 
+                  onClick={() => addFriend(winners[1].username)}
+                  className={`p-1 rounded-md border transition-all ${addedFriends.includes(winners[1].username) ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-white/5 border-white/5 hover:bg-cyan-500/10 hover:text-cyan-400"}`}
+                >
+                  {addedFriends.includes(winners[1].username) ? <Check size={12} /> : <UserPlus size={12} />}
+                </button>
+             </div>
              <div className="w-full h-24 bg-zinc-800/20 rounded-t-3xl mt-8 border-x border-t border-white/5 hidden md:block" />
           </motion.div>
         )}
@@ -75,7 +104,15 @@ export function GameResult({ room, userId }: { room: RoomState; userId: string }
                 </div>
              </div>
              <div className="text-3xl font-black text-white uppercase italic tracking-tight">{winners[0].username}</div>
-             <div className="text-xl font-black text-amber-400 mt-1 tracking-tighter">{winners[0].score.toLocaleString()} PTS</div>
+             <div className="flex items-center gap-3 mt-1 mb-4">
+                <div className="text-xl font-black text-amber-400 tracking-tighter">{winners[0].score.toLocaleString()} PTS</div>
+                <button 
+                  onClick={() => addFriend(winners[0].username)}
+                  className={`p-1.5 rounded-lg border transition-all ${addedFriends.includes(winners[0].username) ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-white/5 border-white/10 hover:bg-cyan-500/10 hover:text-cyan-400"}`}
+                >
+                  {addedFriends.includes(winners[0].username) ? <Check size={14} /> : <UserPlus size={14} />}
+                </button>
+             </div>
              <div className="w-full h-44 bg-zinc-800/40 rounded-t-[3rem] mt-8 border-x border-t border-white/10 hidden md:block relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-t from-amber-500/10 via-transparent to-transparent" />
                 <motion.div 
@@ -102,7 +139,15 @@ export function GameResult({ room, userId }: { room: RoomState; userId: string }
                 <span className="text-3xl font-black text-zinc-300">{winners[2].username[0].toUpperCase()}</span>
              </div>
              <div className="text-lg font-black text-zinc-100 uppercase italic">{winners[2].username}</div>
-             <div className="text-sm font-bold text-zinc-500 tracking-tighter">{winners[2].score.toLocaleString()} PTS</div>
+             <div className="flex items-center gap-2 mt-1 mb-2">
+                <div className="text-sm font-bold text-zinc-500 tracking-tighter">{winners[2].score.toLocaleString()} PTS</div>
+                <button 
+                  onClick={() => addFriend(winners[2].username)}
+                  className={`p-1 rounded-md border transition-all ${addedFriends.includes(winners[2].username) ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-white/5 border-white/10 hover:bg-cyan-500/10 hover:text-cyan-400"}`}
+                >
+                  {addedFriends.includes(winners[2].username) ? <Check size={12} /> : <UserPlus size={12} />}
+                </button>
+             </div>
              <div className="w-full h-16 bg-zinc-900/30 rounded-t-3xl mt-8 border-x border-t border-white/5 hidden md:block" />
           </motion.div>
         )}

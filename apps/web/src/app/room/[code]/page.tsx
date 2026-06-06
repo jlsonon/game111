@@ -10,6 +10,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { sensory } from "@/lib/sensory";
+import { VoiceControl } from "@/components/voice-control";
 
 import { Lobby } from "@/components/games/lobby";
 import { DrawGuess } from "@/components/games/draw-guess";
@@ -138,6 +139,8 @@ export default function RoomPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          <VoiceControl />
+
           <Panel className="p-5 border-l-4 border-cyan-500/20">
             <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500 flex items-center gap-2">
               <Users size={16} className="text-cyan-400" />

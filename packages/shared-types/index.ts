@@ -140,23 +140,26 @@ export interface TitleDefinition {
   rarity: "Common" | "Rare" | "Epic" | "Legendary";
 }
 
-export interface ProgressionResult {
-  xp: number;
-  level: number;
-  xpForCurrentLevel: number;
-  xpForNextLevel: number;
-  progress: number;
+export interface RoomSettings {
+  rounds: number;
+  timerSeconds: number;
+  maxPlayers: number;
+  isLocked: boolean;
+  isPublic: boolean;
+  allowSpectators: boolean;
 }
 
 export interface ServerToClientEvents {
   room_created: (code: string) => void;
   room_state_update: (state: RoomState) => void;
+  public_rooms_update: (rooms: any[]) => void;
   partyverse_error: (error: { message: string }) => void;
   game_start_countdown: (seconds: number) => void;
+  peer_signal: (data: { from: string; signal: any }) => void;
 }
 
 export interface ClientToServerEvents {
-  create_room: (data: { userId: string; username: string; gameType?: GameType }) => void;
+  create_room: (data: { userId: string; username: string; gameType?: GameType; isPublic?: boolean }) => void;
   join_room: (data: { code: string; userId: string; username: string }) => void;
   leave_room: (data: { code: string; userId: string }) => void;
   set_ready: (data: { code: string; userId: string; ready: boolean }) => void;
@@ -167,5 +170,8 @@ export interface ClientToServerEvents {
   send_guess: (data: { code: string; userId: string; username: string; message: string }) => void;
   submit_answer: (data: { code: string; userId: string; answer: any }) => void;
   cast_vote: (data: { code: string; vote: VoteRecord }) => void;
-  host_action: (data: { code: string; userId: string; action: "KICK" | "MUTE" | "LOCK"; targetId?: string }) => void;
+  host_action: (data: { code: string; userId: string; action: "KICK" | "MUTE" | "LOCK" | "PUBLIC"; targetId?: string }) => void;
+  get_public_rooms: () => void;
+  peer_signal: (data: { to: string; from: string; signal: any }) => void;
 }
+
