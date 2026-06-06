@@ -2,14 +2,16 @@
 
 import { GhostButton } from "@/components/ui";
 import { NicknameAuth } from "@/components/nickname-auth";
+import { AchievementToast } from "@/components/achievement-toast";
 import { usePartyverseStore } from "@/store/partyverse-store";
-import { Bell, Gamepad2, Menu, Moon, Share2, Sun, User as UserIcon } from "lucide-react";
+import { Bell, Gamepad2, Menu, Moon, Share2, Sun, User as UserIcon, ShoppingBag } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 const nav = [
   ["Games", "/games"],
   ["Leaderboards", "/leaderboards"],
+  ["Shop", "/shop"],
   ["Gallery", "/gallery"],
   ["Social", "/social"],
   ["Profile", "/profile"],
@@ -57,12 +59,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
           <div className="flex items-center gap-2">
+            <Link href="/shop" className="mr-2">
+              <div className="flex items-center gap-2 rounded-full bg-white/5 py-1.5 pl-2 pr-4 text-xs font-bold text-amber-400 border border-amber-500/20 hover:bg-amber-500/10 transition-colors">
+                <div className="grid size-7 place-items-center rounded-full bg-amber-400 text-zinc-950">
+                  <ShoppingBag size={14} />
+                </div>
+                {profile.coins.toLocaleString()}
+              </div>
+            </Link>
+            
             <div className="mr-2 hidden items-center gap-2 rounded-full bg-white/5 py-1.5 pl-2 pr-4 text-xs font-bold text-zinc-400 sm:flex">
               <div className="grid size-7 place-items-center rounded-full bg-gradient-to-br from-cyan-400 to-fuchsia-500 text-white">
                 <UserIcon size={14} />
               </div>
               {profile.username}
             </div>
+            
             <GhostButton className="hidden px-3 sm:inline-flex" onClick={toggleTheme} aria-label="Toggle theme">
               {theme === "dark" ? <Moon size={18} /> : <Sun size={18} />}
             </GhostButton>
@@ -96,6 +108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main>
         {children}
       </main>
+      <AchievementToast />
       {needsAuth && <NicknameAuth />}
     </div>
   );

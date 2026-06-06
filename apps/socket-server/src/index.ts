@@ -54,6 +54,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 const PORT = process.env.PORT || 3001;
 const rooms = new Map<string, RoomState>();
 const intervals = new Map<string, NodeJS.Timeout>();
+const socketToUser = new Map<string, { userId: string; code: string }>();
 
 app.get("/health", (_request, response) => {
   response.json({ ok: true, rooms: rooms.size });
@@ -66,6 +67,7 @@ io.on("connection", (socket) => {
     const code = uniqueCode();
     const room = createRoom(code, userId, username, gameType ?? "DRAW_GUESS");
     rooms.set(code, room);
+    socketToUser.set(socket.id, { userId, code });
     socket.join(code);
     socket.emit("room_created", code);
     io.to(code).emit("room_state_update", room);
@@ -88,6 +90,8 @@ io.on("connection", (socket) => {
       socket.emit("partyverse_error", { message: "Room is locked" });
       return;
     }
+
+    socketToUser.set(socket.id, { userId, code: roomCode });
 
     if (!room.players[userId]) {
       room.players[userId] = {
@@ -119,6 +123,7 @@ io.on("connection", (socket) => {
     if (!room || !room.players[userId]) return;
     room.players[userId].connected = false;
     room.updatedAt = Date.now();
+    socketToUser.delete(socket.id);
     io.to(roomCode).emit("room_state_update", room);
   });
 
@@ -131,7 +136,7 @@ io.on("connection", (socket) => {
   socket.on("set_game", ({ code, userId, gameType }) => {
     mutateRoom(code, (room) => {
       if (room.hostId !== userId) return;
-      if (room.status === "PLAYING") return; // Guard: Can't change game while playing
+      if (room.status === "PLAYING") return;
 
       room.gameType = gameType;
       room.phase = "LOBBY";
@@ -150,7 +155,6 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomCode);
     if (!room || room.hostId !== userId) return;
 
-    // Reset game state for a fresh start
     room.status = "PLAYING";
     room.round = 1;
     room.chat.push(systemMessage("The party is starting! Get ready..."));
@@ -165,7 +169,7 @@ io.on("connection", (socket) => {
 
   socket.on("draw_stroke", ({ code, stroke }) => {
     mutateRoom(code, (room) => {
-      if (room.phase !== "DRAWING") return; // Phase Guard
+      if (room.phase !== "DRAWING") return;
       room.strokes.push(stroke);
     });
   });
@@ -183,12 +187,9 @@ io.on("connection", (socket) => {
       const isCorrect = message.toLowerCase().trim() === room.answer?.toLowerCase();
       const kind = isCorrect ? "SYSTEM" : "GUESS";
       
-      // If correct and in guessing phase, give points
       if (isCorrect && room.phase === "GUESSING" && !hasGuessedCorrectly(room, userId)) {
         room.players[userId].score += Math.max(50, 150 - room.chat.filter(m => m.kind === "SYSTEM" && m.message.includes("guessed correctly")).length * 20);
         room.chat.push(systemMessage(`${username} guessed correctly!`));
-        
-        // Auto-skip if all have guessed
         checkAutoSkip(room, code);
       } else {
         room.chat.push({ id: cryptoId(), userId, username, message: message.slice(0, 240), kind, createdAt: Date.now() });
@@ -203,10 +204,8 @@ io.on("connection", (socket) => {
     const { code, userId, answer } = result.data;
     mutateRoom(code, (room) => {
       if (room.phase !== "SUBMITTING" && room.phase !== "DAY" && room.phase !== "NIGHT") return;
-      
       room.submissions[userId] = { answer, timestamp: Date.now() };
       room.chat.push(systemMessage(`${room.players[userId]?.username || "A player"} submitted.`));
-      
       checkAutoSkip(room, code);
     });
   });
@@ -218,10 +217,8 @@ io.on("connection", (socket) => {
     const { code, vote } = result.data;
     mutateRoom(code, (room) => {
       if (room.phase !== "VOTING" && room.phase !== "NIGHT" && room.phase !== "SPY_GUESS") return;
-
       room.votes = room.votes.filter((v) => v.voterId !== vote.voterId);
       room.votes.push(vote);
-      
       checkAutoSkip(room, code);
     });
   });
@@ -236,7 +233,28 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log(`Socket disconnected: ${socket.id}`);
+    const info = socketToUser.get(socket.id);
+    if (!info) return;
+
+    const { userId, code } = info;
+    const room = rooms.get(code);
+    if (!room || !room.players[userId]) return;
+
+    room.players[userId].connected = false;
+    room.updatedAt = Date.now();
+
+    // Host Migration
+    if (room.hostId === userId) {
+      const nextHost = Object.values(room.players).find(p => p.connected && p.id !== userId);
+      if (nextHost) {
+        room.hostId = nextHost.id;
+        room.players[nextHost.id].isHost = true;
+        room.chat.push(systemMessage(`${nextHost.username} is now the host.`));
+      }
+    }
+
+    io.to(code).emit("room_state_update", room);
+    socketToUser.delete(socket.id);
   });
 });
 
