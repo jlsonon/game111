@@ -5,7 +5,7 @@ import { InstallPrompt } from "@/components/install-prompt";
 import { RoomLauncher } from "@/components/room-launcher";
 import { Metric, Panel, SectionHeader } from "@/components/ui";
 import { achievements, galleryMoments, leaderboardEntries } from "@/lib/catalog";
-import { Activity, Crown, ShieldCheck, Sparkles, Users, Zap, Globe, ZapOff, Fingerprint } from "lucide-react";
+import { Activity, Crown, ShieldCheck, Sparkles, Users, Zap, Globe, ZapOff, Fingerprint, Plus } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function Home() {
