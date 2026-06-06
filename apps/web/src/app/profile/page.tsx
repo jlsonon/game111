@@ -1,6 +1,6 @@
 "use client";
 
-import { Metric, Panel, SectionHeader } from "@/components/ui";
+import { Button, Metric, Panel, SectionHeader } from "@/components/ui";
 import { achievements as catalogAchievements, calculateProgression, titles as catalogTitles } from "@/lib/catalog";
 import { usePartyverseStore } from "@/store/partyverse-store";
 import { motion } from "framer-motion";
