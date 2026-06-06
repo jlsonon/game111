@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import { z } from "zod";
 import { PROMPTS } from "./prompts";
+import { prisma } from "@partyverse/db";
 import type { 
   DrawingStroke, 
   GameType, 
@@ -62,6 +63,8 @@ app.get("/health", (_request, response) => {
 });
 
 io.on("connection", (socket) => {
+  console.log(`Socket connected: ${socket.id}`);
+
   socket.on("create_room", ({ userId, username, gameType }) => {
     const code = uniqueCode();
     const room = createRoom(code, userId, username, gameType ?? "DRAW_GUESS");
@@ -301,6 +304,7 @@ function startNextPhase(code: string) {
     room.status = "FINISHED";
     room.phase = "RESULT";
     room.timer = 0;
+    saveMatchResults(room); // Persist results to DB
   } else {
     room.phase = nextPhase;
     room.timer = getPhaseDuration(room.gameType, nextPhase);
@@ -352,6 +356,57 @@ function startNextPhase(code: string) {
 
   io.to(roomCode).emit("room_state_update", room);
 }
+
+// --- DATABASE PERSISTENCE ---
+
+async function saveMatchResults(room: RoomState) {
+  try {
+    const players = Object.values(room.players);
+    const winner = players.sort((a, b) => b.score - a.score)[0];
+
+    // 1. Create the Match record
+    const match = await prisma.match.create({
+      data: {
+        gameType: room.gameType!,
+        roomId: room.code,
+        winnerId: winner?.id,
+        rounds: room.round,
+        endedAt: new Date(),
+        players: {
+          create: players.map(p => ({
+            userId: p.id,
+            score: p.score,
+            xpEarned: Math.floor(p.score / 10) + 50,
+            coinsEarned: Math.floor(p.score / 20) + 10,
+          }))
+        }
+      }
+    });
+
+    // 2. Update global user stats
+    for (const player of players) {
+      const xpGained = Math.floor(player.score / 10) + 50;
+      const coinsGained = Math.floor(player.score / 20) + 10;
+
+      await prisma.user.update({
+        where: { id: player.id },
+        data: {
+          xp: { increment: xpGained },
+          coins: { increment: coinsGained },
+        }
+      });
+      
+      // 3. Trigger server-side achievement checks (Emitted as system chat for now)
+      if (player.score >= 500) {
+        room.chat.push(systemMessage(`🏆 ACHIEVEMENT UNLOCKED: ${player.username} is a Party Starter!`));
+      }
+    }
+  } catch (error) {
+    console.error("Critical Database Persistence Failure:", error);
+  }
+}
+
+// --- GAME CONTENT SETUP ---
 
 function setupDrawGuessTurn(room: RoomState) {
   const players = Object.values(room.players).filter(p => p.connected);
@@ -482,9 +537,9 @@ function systemMessage(message: string) {
 function promptFor(gameType: GameType) {
   const prompts: Record<GameType, string> = {
     DRAW_GUESS: "Get ready to draw!",
-    BLUFF_MASTER: "A group of flamingos is called a what?",
+    BLUFF_MASTER: "Wait for the prompt...",
     MEME_BATTLE: "When the host changes the timer to 5 seconds...",
-    TRIVIA_SHOWDOWN: "Which planet is known as the Red Planet?",
+    TRIVIA_SHOWDOWN: "Get ready for the question!",
     SECRET_SPY: "One of you is a spy. Interrogate each other!",
     MAFIA: "Night falls. Mafia, pick your victim.",
     TELEPHONE_DRAWING: "Pass the drawing down the line!",
