@@ -9,6 +9,7 @@ export const GAME_TYPES = [
   "MOST_LIKELY_TO",
   "WOULD_YOU_RATHER",
   "FASTEST_FINGER",
+  "IMPOSTOR",
 ] as const;
 
 export type GameType = (typeof GAME_TYPES)[number];

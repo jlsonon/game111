@@ -111,6 +111,17 @@ export const games: GameDefinition[] = [
     phases: ["SUBMITTING", "REVEAL"],
     features: ["Buzz-in", "Reaction timing", "Speed scoring", "Bonus streaks"],
   },
+  {
+    type: "IMPOSTOR",
+    name: "Impostor",
+    tagline: "Everyone has the secret word except the impostor. Blend in or get caught.",
+    minPlayers: 3,
+    maxPlayers: 12,
+    averageMinutes: 10,
+    primarySkill: "Social",
+    phases: ["DAY", "VOTING", "REVEAL"],
+    features: ["Secret topics", "Hidden impostor", "Voting rounds", "Group interrogation"],
+  },
 ];
 
 export const gameByType = Object.fromEntries(games.map((game) => [game.type, game])) as Record<GameType, GameDefinition>;

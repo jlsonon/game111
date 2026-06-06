@@ -19,6 +19,7 @@ import { Mafia } from "@/components/games/mafia";
 import { MostLikelyTo } from "@/components/games/most-likely-to";
 import { WouldYouRather } from "@/components/games/would-you-rather";
 import { FastestFinger } from "@/components/games/fastest-finger";
+import { Impostor } from "@/components/games/impostor";
 
 export default function RoomPage() {
   const params = useParams<{ code: string }>();
@@ -193,6 +194,8 @@ function renderGameView(room: RoomState, userId: string) {
       return <WouldYouRather room={room} userId={userId} />;
     case "FASTEST_FINGER":
       return <FastestFinger room={room} userId={userId} />;
+    case "IMPOSTOR":
+      return <Impostor room={room} userId={userId} />;
     default:
       return (
         <div className="grid min-h-[500px] place-items-center rounded-3xl border border-white/10 bg-white/5 p-12 text-center">

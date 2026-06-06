@@ -236,6 +236,9 @@ function startNextPhase(code: string) {
       if (room.gameType === "MAFIA" && room.phase === "NIGHT") {
         setupMafiaGame(room);
       }
+      if (room.gameType === "IMPOSTOR" && room.phase === "DAY") {
+        setupImpostorGame(room);
+      }
     }
 
     // Start timer
@@ -281,6 +284,18 @@ function setupMafiaGame(room: RoomState) {
   });
 }
 
+function setupImpostorGame(room: RoomState) {
+  const topics = ["Pizza", "Super Mario", "iPhone", "Eiffel Tower", "Coffee", "Minecraft", "Netflix", "TikTok"];
+  const topic = topics[Math.floor(Math.random() * topics.length)];
+  room.answer = topic;
+  
+  const players = Object.values(room.players);
+  const impostorIndex = Math.floor(Math.random() * players.length);
+  players.forEach((p, i) => {
+    p.role = i === impostorIndex ? "IMPOSTOR" : "CITIZEN";
+  });
+}
+
 function getNextPhase(room: RoomState): RoomPhase {
   const { gameType, phase } = room;
   
@@ -316,6 +331,13 @@ function getNextPhase(room: RoomState): RoomPhase {
     if (phase === "DAY") return "VOTING";
     if (phase === "VOTING") return "SPY_GUESS";
     if (phase === "SPY_GUESS") return "REVEAL";
+    if (phase === "REVEAL") return "COMPLETE";
+  }
+
+  if (gameType === "IMPOSTOR") {
+    if (phase === "LOBBY") return "DAY";
+    if (phase === "DAY") return "VOTING";
+    if (phase === "VOTING") return "REVEAL";
     if (phase === "REVEAL") return "COMPLETE";
   }
 
@@ -419,6 +441,7 @@ function promptFor(gameType: GameType) {
     MOST_LIKELY_TO: "Most likely to overthink a simple prompt?",
     WOULD_YOU_RATHER: "Always know the trivia answer or always draw perfectly?",
     FASTEST_FINGER: "Buzz first when the answer appears.",
+    IMPOSTOR: "Describe the word carefully without revealing it to the impostor.",
   };
 
   return prompts[gameType];
