@@ -1,0 +1,32 @@
+{
+  "name": "PARTYVERSE",
+  "short_name": "PARTYVERSE",
+  "description": "Realtime multiplayer party games in one installable PWA.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#090a12",
+  "theme_color": "#090a12",
+  "categories": ["games", "social", "entertainment"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Create Room",
+      "url": "/?action=create",
+      "description": "Start a PARTYVERSE room"
+    },
+    {
+      "name": "Games",
+      "url": "/games",
+      "description": "Browse party games"
+    }
+  ]
+}

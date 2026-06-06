@@ -1,0 +1,349 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GameType {
+  DRAW_GUESS
+  BLUFF_MASTER
+  MEME_BATTLE
+  TRIVIA_SHOWDOWN
+  SECRET_SPY
+  MAFIA
+  TELEPHONE_DRAWING
+  MOST_LIKELY_TO
+  WOULD_YOU_RATHER
+  FASTEST_FINGER
+}
+
+enum RoomStatus {
+  WAITING
+  PLAYING
+  FINISHED
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+enum RewardKind {
+  AVATAR
+  THEME
+  FRAME
+  NAME_EFFECT
+  CHAT_COSMETIC
+  ROOM_DECORATION
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+model User {
+  id              String   @id @default(cuid())
+  username        String   @unique
+  displayName     String?
+  email           String?  @unique
+  passwordHash    String?
+  avatarUrl       String?
+  bio             String?
+  xp              Int      @default(0)
+  level           Int      @default(1)
+  coins           Int      @default(0)
+  rank            String   @default("Bronze")
+  equippedTitleId String?
+  joinStreak      Int      @default(0)
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  equippedTitle   Title?              @relation("EquippedTitle", fields: [equippedTitleId], references: [id])
+  achievements    UserAchievement[]
+  titles          UserTitle[]
+  inventory       UserInventory[]
+  stats           UserGameStat[]
+  matchHistory    MatchPlayer[]
+  hostedRooms     Room[]              @relation("Host")
+  roomPlayers     RoomPlayer[]
+  sentRequests    Friendship[]        @relation("UserFriends")
+  receivedRequests Friendship[]       @relation("FriendUsers")
+  moments         Moment[]
+  dailyRewards    DailyRewardClaim[]
+  reportsMade     Report[]            @relation("Reporter")
+  reportsReceived Report[]            @relation("Reported")
+
+  @@index([xp])
+  @@index([coins])
+  @@index([level])
+}
+
+model Friendship {
+  id        String       @id @default(cuid())
+  userId    String
+  friendId  String
+  status    FriendStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user      User         @relation("UserFriends", fields: [userId], references: [id], onDelete: Cascade)
+  friend    User         @relation("FriendUsers", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([friendId, status])
+}
+
+model Room {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  hostId      String
+  gameType    GameType?
+  status      RoomStatus @default(WAITING)
+  settings    Json       @default("{}")
+  state        Json       @default("{}")
+  isLocked    Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  endedAt     DateTime?
+
+  host        User       @relation("Host", fields: [hostId], references: [id])
+  players     RoomPlayer[]
+  matches     Match[]
+
+  @@index([status])
+  @@index([gameType])
+}
+
+model RoomPlayer {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  score     Int      @default(0)
+  isReady   Boolean  @default(false)
+  isMuted   Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+model Match {
+  id          String    @id @default(cuid())
+  roomId      String?
+  gameType    GameType
+  seasonId    String?
+  winnerId    String?
+  rounds      Int       @default(1)
+  replayData  Json      @default("{}")
+  stats       Json      @default("{}")
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+
+  room        Room?     @relation(fields: [roomId], references: [id])
+  season      Season?   @relation(fields: [seasonId], references: [id])
+  players     MatchPlayer[]
+  moments     Moment[]
+
+  @@index([gameType, endedAt])
+  @@index([winnerId])
+}
+
+model MatchPlayer {
+  id        String   @id @default(cuid())
+  matchId   String
+  userId    String
+  score     Int      @default(0)
+  placement Int?
+  xpEarned  Int      @default(0)
+  coinsEarned Int    @default(0)
+  stats     Json     @default("{}")
+
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, userId])
+  @@index([userId])
+}
+
+model UserGameStat {
+  id          String   @id @default(cuid())
+  userId      String
+  gameType    GameType
+  gamesPlayed Int      @default(0)
+  wins        Int      @default(0)
+  losses      Int      @default(0)
+  accuracy    Float    @default(0)
+  bestStreak  Int      @default(0)
+  totalScore  Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gameType])
+  @@index([gameType, wins])
+}
+
+model Achievement {
+  id          String   @id
+  name        String
+  description String
+  category    String
+  tier        String   @default("Bronze")
+  xpReward    Int      @default(100)
+  coinReward  Int      @default(50)
+  condition   Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime    @default(now())
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId])
+}
+
+model Title {
+  id        String   @id
+  name      String
+  condition String
+  rarity    String   @default("Common")
+  users     UserTitle[]
+  equippedBy User[]  @relation("EquippedTitle")
+}
+
+model UserTitle {
+  id         String   @id @default(cuid())
+  userId     String
+  titleId    String
+  unlockedAt DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      Title    @relation(fields: [titleId], references: [id])
+
+  @@unique([userId, titleId])
+}
+
+model StoreItem {
+  id          String     @id
+  name        String
+  description String
+  kind        RewardKind
+  price       Int
+  assetUrl    String?
+  metadata    Json       @default("{}")
+  isSeasonal  Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+
+  owners      UserInventory[]
+}
+
+model UserInventory {
+  id          String    @id @default(cuid())
+  userId      String
+  itemId      String
+  equipped    Boolean   @default(false)
+  purchasedAt DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item        StoreItem @relation(fields: [itemId], references: [id])
+
+  @@unique([userId, itemId])
+}
+
+model Season {
+  id          String   @id
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime
+  theme       String
+  rewards     Json     @default("[]")
+  matches     Match[]
+}
+
+model LeaderboardSnapshot {
+  id        String   @id @default(cuid())
+  scope     String
+  category  String
+  period    String
+  entries   Json
+  createdAt DateTime @default(now())
+
+  @@index([scope, category, period])
+}
+
+model Moment {
+  id          String   @id @default(cuid())
+  userId      String?
+  matchId     String?
+  gameType    GameType
+  title       String
+  description String
+  imageUrl    String?
+  payload     Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  match       Match?   @relation(fields: [matchId], references: [id], onDelete: SetNull)
+}
+
+model DailyRewardClaim {
+  id        String   @id @default(cuid())
+  userId    String
+  dayKey    String
+  streak    Int
+  xp        Int
+  coins     Int
+  claimedAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayKey])
+}
+
+model Question {
+  id         String   @id @default(cuid())
+  gameType   GameType
+  category   String
+  prompt     String
+  answer     String?
+  choices    Json     @default("[]")
+  metadata   Json     @default("{}")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([gameType, category])
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  reporterId  String
+  reportedId  String?
+  roomCode    String?
+  reason      String
+  status      ReportStatus @default(OPEN)
+  metadata    Json         @default("{}")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  reporter    User         @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported    User?        @relation("Reported", fields: [reportedId], references: [id], onDelete: SetNull)
+}
