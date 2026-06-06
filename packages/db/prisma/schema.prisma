@@ -18,6 +18,7 @@ enum GameType {
   MOST_LIKELY_TO
   WOULD_YOU_RATHER
   FASTEST_FINGER
+  IMPOSTOR
 }
 
 enum RoomStatus {
