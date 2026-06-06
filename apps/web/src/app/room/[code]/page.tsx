@@ -5,9 +5,12 @@ import { games } from "@/lib/catalog";
 import { getSocket } from "@/lib/socket";
 import { usePartyverseStore } from "@/store/partyverse-store";
 import type { GameType, RoomState } from "@partyverse/shared";
-import { Crown, Lock, MessageSquare, Play, Send, Users } from "lucide-react";
+import { Crown, Lock, MessageSquare, Play, Send, Users, Volume2, VolumeX } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { sensory } from "@/lib/sensory";
+
 import { Lobby } from "@/components/games/lobby";
 import { DrawGuess } from "@/components/games/draw-guess";
 import { GameResult } from "@/components/games/game-result";
@@ -26,6 +29,7 @@ export default function RoomPage() {
   const code = params.code.toUpperCase();
   const { profile, room, setRoom, selectedGame, setSelectedGame } = usePartyverseStore();
   const [guess, setGuess] = useState("");
+  const [soundEnabled, setSoundEnabled] = useState(true);
   
   const game = useMemo(() => games.find((item) => item.type === (room?.gameType ?? selectedGame)), [room?.gameType, selectedGame]);
 
@@ -35,6 +39,13 @@ export default function RoomPage() {
     socket.emit("join_room", { code, userId: profile.id, username: profile.username });
 
     const onUpdate = (state: RoomState) => {
+      // Trigger sensory feedback on phase change
+      if (room && room.phase !== state.phase) {
+        sensory.playSfx("NOTIFICATION");
+        sensory.vibrate(20);
+        if (state.phase === "RESULT") sensory.celebrate();
+      }
+      
       setRoom(state);
       if (state.gameType) setSelectedGame(state.gameType);
     };
@@ -45,14 +56,14 @@ export default function RoomPage() {
       socket.off("room_state_update", onUpdate);
       socket.emit("leave_room", { code, userId: profile.id });
     };
-  }, [code, profile.id, profile.username, setRoom, setSelectedGame]);
+  }, [code, profile.id, profile.username, setRoom, setSelectedGame, room]);
 
   if (!room) return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <div className="text-center">
-        <div className="size-12 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent mx-auto"></div>
-        <p className="mt-4 font-bold text-zinc-400 text-lg">Connecting to room {code}...</p>
-      </div>
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
+        <div className="size-16 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent mx-auto shadow-lg shadow-cyan-500/20"></div>
+        <p className="mt-6 font-black text-white text-xl tracking-tight">Connecting to {code}...</p>
+      </motion.div>
     </div>
   );
 
@@ -64,16 +75,27 @@ export default function RoomPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <div className="space-y-6">
           {/* Header */}
-          <Panel className="p-4">
+          <Panel className="p-4 border-b-4 border-white/5">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.22em] text-cyan-400">
-                  <Users size={16} /> Room {code}
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.3em] text-cyan-400">
+                  <Users size={14} /> Room {code}
                 </div>
-                <h1 className="mt-1 text-3xl font-black">{game?.name ?? "Party Room"}</h1>
+                <h1 className="mt-1 text-4xl font-black italic tracking-tighter text-white uppercase">{game?.name ?? "Party Room"}</h1>
               </div>
               
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <GhostButton 
+                  onClick={() => {
+                    const next = !soundEnabled;
+                    setSoundEnabled(next);
+                    sensory.setAudioEnabled(next);
+                  }}
+                  className="size-11 rounded-xl p-0"
+                >
+                  {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} className="text-zinc-500" />}
+                </GhostButton>
+
                 {isHost && room.phase === "LOBBY" && (
                   <select
                     value={room.gameType ?? selectedGame}
@@ -81,69 +103,90 @@ export default function RoomPage() {
                       const nextGame = e.target.value as GameType;
                       getSocket().emit("set_game", { code, userId: profile.id, gameType: nextGame });
                       setSelectedGame(nextGame);
+                      sensory.playSfx("POP");
                     }}
-                    className="min-h-11 rounded-xl border border-white/10 bg-zinc-950 px-4 text-sm font-bold text-white transition-colors focus:border-cyan-400 focus:outline-none"
+                    className="min-h-11 rounded-xl border border-white/10 bg-zinc-950 px-4 text-sm font-black text-white transition-all focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 outline-none hover:bg-zinc-900"
                   >
                     {games.map((item) => <option key={item.type} value={item.type}>{item.name}</option>)}
                   </select>
                 )}
-                <div className="grid place-items-center rounded-xl bg-white/5 px-4 font-mono text-xl font-black text-cyan-300">
+                
+                <div className={`grid place-items-center rounded-xl bg-white/5 px-4 h-11 font-mono text-xl font-black transition-colors ${room.timer <= 10 ? "text-rose-500 animate-pulse" : "text-cyan-300"}`}>
                   {room.timer}s
                 </div>
               </div>
             </div>
           </Panel>
 
-          {/* Main Game Area */}
+          {/* Main Game Area with Transitions */}
           <div className="relative min-h-[500px]">
-            {renderGameView(room, profile.id)}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`${room.phase}-${room.gameType}`}
+                initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -20, filter: "blur(10px)" }}
+                transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                className="h-full"
+              >
+                {renderGameView(room, profile.id)}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
 
         {/* Sidebar */}
         <div className="space-y-6">
-          <Panel className="p-5">
-            <h2 className="text-lg font-black uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-              <Users size={20} className="text-cyan-400" />
+          <Panel className="p-5 border-l-4 border-cyan-500/20">
+            <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500 flex items-center gap-2">
+              <Users size={16} className="text-cyan-400" />
               Players ({players.length})
             </h2>
-            <div className="mt-5 space-y-3">
+            <div className="mt-5 space-y-2">
               {players.map((player) => (
-                <div key={player.id} className="group relative flex items-center justify-between rounded-xl bg-white/5 p-4 transition-all hover:bg-white/8">
+                <motion.div 
+                  layout
+                  key={player.id} 
+                  className={`group relative flex items-center justify-between rounded-xl p-3 transition-all ${player.id === profile.id ? "bg-cyan-500/10 border border-cyan-500/20 shadow-lg shadow-cyan-500/5" : "bg-white/5 hover:bg-white/8"}`}
+                >
                   <div className="flex items-center gap-3">
-                    <div className="grid size-10 place-items-center rounded-lg bg-gradient-to-br from-zinc-700 to-zinc-800 text-lg font-black">
+                    <div className={`grid size-9 place-items-center rounded-lg font-black text-sm ${player.id === profile.id ? "bg-cyan-400 text-zinc-950" : "bg-zinc-800 text-white"}`}>
                       {player.username[0].toUpperCase()}
                     </div>
                     <div>
-                      <div className="flex items-center gap-1.5 font-bold">
+                      <div className="flex items-center gap-1.5 text-sm font-black italic uppercase">
                         {player.username}
-                        {player.isHost && <Crown size={14} className="text-amber-400" />}
+                        {player.isHost && <Crown size={12} className="text-amber-400" />}
                       </div>
-                      <div className="text-xs font-bold text-zinc-500 uppercase tracking-tight">{player.equippedTitle || "Rookie"}</div>
+                      <div className="text-[10px] font-black text-zinc-500 uppercase tracking-tighter">{player.equippedTitle || "Rookie"}</div>
                     </div>
                   </div>
-                  <div className="text-right text-sm font-black text-cyan-400">
+                  <div className="text-right text-xs font-black text-cyan-400 font-mono">
                     {player.score.toLocaleString()}
                   </div>
-                  {!player.connected && <div className="absolute inset-0 rounded-xl bg-zinc-950/60 backdrop-blur-[1px] flex items-center justify-center text-[10px] font-black uppercase text-zinc-400">Disconnected</div>}
-                </div>
+                  {!player.connected && <div className="absolute inset-0 rounded-xl bg-zinc-950/80 backdrop-blur-[2px] flex items-center justify-center text-[10px] font-black uppercase text-rose-500 tracking-widest">Offline</div>}
+                </motion.div>
               ))}
             </div>
           </Panel>
 
-          <Panel className="flex h-[400px] flex-col p-5">
-            <h2 className="text-lg font-black uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-              <MessageSquare size={20} className="text-fuchsia-400" />
-              Party Chat
+          <Panel className="flex h-[450px] flex-col p-5 border-l-4 border-fuchsia-500/20">
+            <h2 className="text-xs font-black uppercase tracking-[0.25em] text-zinc-500 flex items-center gap-2">
+              <MessageSquare size={16} className="text-fuchsia-400" />
+              Party Stream
             </h2>
-            <div className="mt-5 flex-1 space-y-3 overflow-y-auto pr-2 custom-scrollbar">
+            <div className="mt-5 flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
               {room.chat.map((msg) => (
-                <div key={msg.id} className={`rounded-xl p-3 text-sm ${msg.kind === "SYSTEM" ? "bg-cyan-500/10 border border-cyan-500/20 text-cyan-100" : "bg-white/5 text-zinc-200"}`}>
-                  {msg.kind !== "SYSTEM" && <span className="mr-1.5 font-black text-white">{msg.username}:</span>}
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  key={msg.id} 
+                  className={`rounded-xl p-3 text-xs leading-relaxed ${msg.kind === "SYSTEM" ? "bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 font-bold italic" : "bg-white/5 text-zinc-200"}`}
+                >
+                  {msg.kind !== "SYSTEM" && <span className="mr-1.5 font-black text-white uppercase italic">{msg.username}:</span>}
                   {msg.message}
-                </div>
+                </motion.div>
               ))}
-              {!room.chat.length && <p className="text-center text-sm font-medium text-zinc-500 mt-10">No messages yet.</p>}
             </div>
             <form
               className="mt-5 flex gap-2"
@@ -152,15 +195,16 @@ export default function RoomPage() {
                 if (!guess.trim()) return;
                 getSocket().emit("send_guess", { code, userId: profile.id, username: profile.username, message: guess });
                 setGuess("");
+                sensory.playSfx("TICK");
               }}
             >
               <input
                 value={guess}
                 onChange={(e) => setGuess(e.target.value)}
-                placeholder="Type a message..."
-                className="h-12 flex-1 rounded-xl border border-white/10 bg-black/40 px-4 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-400"
+                placeholder="Type your move..."
+                className="h-12 flex-1 rounded-xl border border-white/10 bg-black/40 px-4 text-sm font-bold text-white outline-none transition-all focus:border-fuchsia-500 focus:ring-4 focus:ring-fuchsia-500/10"
               />
-              <button type="submit" className="grid size-12 place-items-center rounded-xl bg-cyan-500 text-zinc-950 shadow-lg shadow-cyan-500/20 transition-transform active:scale-95">
+              <button type="submit" className="grid size-12 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-indigo-600 text-white shadow-lg shadow-fuchsia-500/20 transition-transform active:scale-90 hover:scale-105">
                 <Send size={20} />
               </button>
             </form>
