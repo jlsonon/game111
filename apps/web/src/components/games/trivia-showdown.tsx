@@ -7,15 +7,16 @@ import { Brain, CheckCircle2, HelpCircle, Trophy } from "lucide-react";
 import { useState } from "react";
 
 export function TriviaShowdown({ room, userId }: { room: RoomState; userId: string }) {
-  const [selectedOption, setSelectedGame] = useState<string | null>(null);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const hasSubmitted = !!room.submissions[userId];
   
-  const options = ["Option A", "Option B", "Option C", "Option D"]; // Mock options for now
+  const options = room.submissions.options || ["Option A", "Option B", "Option C", "Option D"];
 
   function handleSelect(option: string) {
     if (hasSubmitted) return;
-    setSelectedGame(option);
+    setSelectedOption(option);
     getSocket().emit("submit_answer", { code: room.code, userId, answer: option });
+    sensory.playSfx("POP");
   }
 
   return (

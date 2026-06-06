@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import { z } from "zod";
+import { PROMPTS } from "./prompts";
 import type { 
   DrawingStroke, 
   GameType, 
@@ -61,8 +62,6 @@ app.get("/health", (_request, response) => {
 });
 
 io.on("connection", (socket) => {
-  console.log(`Socket connected: ${socket.id}`);
-
   socket.on("create_room", ({ userId, username, gameType }) => {
     const code = uniqueCode();
     const room = createRoom(code, userId, username, gameType ?? "DRAW_GUESS");
@@ -325,6 +324,12 @@ function startNextPhase(code: string) {
       if (room.gameType === "IMPOSTOR" && nextPhase === "DAY") {
         setupImpostorGame(room);
       }
+      if (room.gameType === "TRIVIA_SHOWDOWN" && nextPhase === "SUBMITTING") {
+        setupTriviaGame(room);
+      }
+      if (room.gameType === "BLUFF_MASTER" && nextPhase === "SUBMITTING") {
+        setupBluffGame(room);
+      }
     }
 
     const interval = setInterval(() => {
@@ -352,13 +357,14 @@ function setupDrawGuessTurn(room: RoomState) {
   const players = Object.values(room.players).filter(p => p.connected);
   const nextDrawer = players[Math.floor(Math.random() * players.length)];
   room.activePlayerId = nextDrawer.id;
-  room.prompt = ["Super Mario", "Espresso", "Volcano", "Cyberpunk", "Dinosaur"][Math.floor(Math.random() * 5)];
-  room.answer = room.prompt;
+  const word = PROMPTS.DRAW_GUESS[Math.floor(Math.random() * PROMPTS.DRAW_GUESS.length)];
+  room.prompt = word;
+  room.answer = word;
 }
 
 function setupSpyGame(room: RoomState) {
-  const locations = ["Airport", "Hospital", "Cinema", "Beach", "Space Station", "School", "Casino", "Submarine"];
-  room.location = locations[Math.floor(Math.random() * locations.length)];
+  const location = PROMPTS.SECRET_SPY.locations[Math.floor(Math.random() * PROMPTS.SECRET_SPY.locations.length)];
+  room.location = location;
   const players = Object.values(room.players);
   const spyIndex = Math.floor(Math.random() * players.length);
   players.forEach((p, i) => { p.role = i === spyIndex ? "SPY" : "CITIZEN"; });
@@ -374,11 +380,24 @@ function setupMafiaGame(room: RoomState) {
 }
 
 function setupImpostorGame(room: RoomState) {
-  const topics = ["Pizza", "iPhone", "Netflix", "TikTok", "Bitcoin", "Star Wars", "Eiffel Tower"];
-  room.answer = topics[Math.floor(Math.random() * topics.length)];
+  const topic = PROMPTS.IMPOSTOR[Math.floor(Math.random() * PROMPTS.IMPOSTOR.length)];
+  room.answer = topic;
   const players = Object.values(room.players);
   const impostorIndex = Math.floor(Math.random() * players.length);
   players.forEach((p, i) => { p.role = i === impostorIndex ? "IMPOSTOR" : "CITIZEN"; });
+}
+
+function setupTriviaGame(room: RoomState) {
+  const trivia = PROMPTS.TRIVIA_SHOWDOWN[Math.floor(Math.random() * PROMPTS.TRIVIA_SHOWDOWN.length)];
+  room.prompt = trivia.q;
+  room.answer = trivia.a;
+  room.submissions = { options: trivia.options };
+}
+
+function setupBluffGame(room: RoomState) {
+  const bluff = PROMPTS.BLUFF_MASTER[Math.floor(Math.random() * PROMPTS.BLUFF_MASTER.length)];
+  room.prompt = bluff.q;
+  room.answer = bluff.a;
 }
 
 function getNextPhase(room: RoomState): RoomPhase {
